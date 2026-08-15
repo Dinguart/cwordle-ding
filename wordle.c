@@ -48,6 +48,7 @@ static float scale_x = 1.0f;
 static float scale_y = 1.0f;
 
 static bool is_anim_playing = false;
+static bool game_ended = false;
 
 static const char *get_key(int key) { // stupid thing i need to make cuz glfw is stupid
     switch (key) {
@@ -195,6 +196,7 @@ char* pick_random_word(string *word_list) {
     word_list->size = ftell(file);
     fseek(file, 0, SEEK_SET);
     word_list->data = malloc(word_list->size);
+    printf("%s\n", word);
 
     fread(word_list->data, 1, word_list->size, file);
     fclose(file);
@@ -230,8 +232,9 @@ bool check_availability(const char *word, string *guess, int *guess_count, const
             for (int i=0; i<WORD_SIZE; ++i) {
                 b[guess_idx].colors[i] = GREEN;
             }
-            b[guess_idx].guessed = true;
+            b[guess_idx].guessed = true;            
             (*guess_count)++;
+            guess->size = 0;
             printf("You win!\n");
             return true;
         }
@@ -240,16 +243,16 @@ bool check_availability(const char *word, string *guess, int *guess_count, const
             add_guess_to_board(guess, guess_idx);
             for (int i=0; i<WORD_SIZE; ++i) {
                 for (int j=0; j<WORD_SIZE; ++j) {
+                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], GREEN)) b[guess_idx].colors[i] = BLACK;
+                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
                     if (i == j && guess->data[i] == word[j]) b[guess_idx].colors[i] = GREEN;
-                    else if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], BLACK) && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
-                    else if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], GREEN)) b[guess_idx].colors[i] = BLACK;
                 }
             }
             for (int i=WORD_SIZE-1; i>=0; i--) {
                 for (int j=0; j<WORD_SIZE; ++j) {
+                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], GREEN)) b[guess_idx].colors[i] = BLACK;
+                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
                     if (i == j && guess->data[i] == word[j]) b[guess_idx].colors[i] = GREEN;
-                    else if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], BLACK) && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
-                    else if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], GREEN)) b[guess_idx].colors[i] = BLACK;
                 }
             }
             printf("%d\n%d\n", b[guess_idx].guessed, b[guess_idx].anim_done);
@@ -274,6 +277,7 @@ bool check_availability(const char *word, string *guess, int *guess_count, const
 }
 
 void process_input(string *guess) {
+    if (game_ended) return;
     int key = GetKeyPressed();
     const char *c = get_key(key);
     if (!c) return;
@@ -368,22 +372,21 @@ int main(void) {
         .size = 0
     };
     memset(guess.data, 0, sizeof(char));
-    bool game_ended = false;
     bool game_exited = false;
     while (!game_exited) {
         // upd
-        game_exited = WindowShouldClose();
         if (game_ended) {
             game_exited = IsKeyPressed(KEY_Q);
         }
+        game_exited = WindowShouldClose();
         
         process_input(&guess);
-        if (!is_anim_playing && check_availability(word, &guess, &guess_count, word_list) || guess_count > GUESSES) {
-            end_game(word);
+        if (!game_ended && !is_anim_playing && check_availability(word, &guess, &guess_count, word_list) || guess_count > GUESSES) {
             game_ended = true;
         }
         BeginDrawing();
         ClearBackground(WHITE);
+        if (game_ended) end_game(word);
         draw_input(&guess);
         draw_box_anim(&(b[guess_count-2]));
         draw_board(&guess_count);
