@@ -49,6 +49,7 @@ static float scale_y = 1.0f;
 
 static bool is_anim_playing = false;
 static bool game_ended = false;
+static bool game_exited = false;
 
 static const char *get_key(int key) { // stupid thing i need to make cuz glfw is stupid
     switch (key) {
@@ -184,7 +185,7 @@ char* pick_random_word(string *word_list) {
 
     char buf[50];
     int line_count = 0;
-    while (fgets(buf, 50, file) && line_count < line-1) {
+    while (fgets(buf, 50, file) && line_count < 502) {
         line_count++;
     }
     buf[WORD_SIZE] = '\0';
@@ -241,18 +242,10 @@ bool check_availability(const char *word, string *guess, int *guess_count, const
         else if (strcmp(guess->data, word) != 0 && (*guess_count) <= GUESSES) {
             int guess_idx = (*guess_count)-1;
             add_guess_to_board(guess, guess_idx);
-            for (int i=0; i<WORD_SIZE; ++i) {
-                for (int j=0; j<WORD_SIZE; ++j) {
-                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], GREEN)) b[guess_idx].colors[i] = BLACK;
-                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
+            for (size_t i=0; i<WORD_SIZE; ++i) {
+                for (size_t j=0; j<WORD_SIZE; ++j) {
                     if (i == j && guess->data[i] == word[j]) b[guess_idx].colors[i] = GREEN;
-                }
-            }
-            for (int i=WORD_SIZE-1; i>=0; i--) {
-                for (int j=0; j<WORD_SIZE; ++j) {
-                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[j], GREEN)) b[guess_idx].colors[i] = BLACK;
-                    if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
-                    if (i == j && guess->data[i] == word[j]) b[guess_idx].colors[i] = GREEN;
+                    else if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
                 }
             }
             printf("%d\n%d\n", b[guess_idx].guessed, b[guess_idx].anim_done);
@@ -358,6 +351,10 @@ void draw_box_anim(row *r) {
     }
 }
 
+void check_quit() {
+    game_exited = game_ended ? IsKeyPressed(KEY_Q) : WindowShouldClose();
+}
+
 int main(void) {
     srand(time(0));
     init_board();
@@ -372,14 +369,9 @@ int main(void) {
         .size = 0
     };
     memset(guess.data, 0, sizeof(char));
-    bool game_exited = false;
     while (!game_exited) {
         // upd
-        if (game_ended) {
-            game_exited = IsKeyPressed(KEY_Q);
-        }
-        game_exited = WindowShouldClose();
-        
+        check_quit();
         process_input(&guess);
         if (!game_ended && !is_anim_playing && check_availability(word, &guess, &guess_count, word_list) || guess_count > GUESSES) {
             game_ended = true;
