@@ -1,12 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <raylib.h>
+#include <raymath.h>
 #include <time.h>
 #include <stdbool.h>
 #include <string.h>
 
-#define SCREEN_W 540
-#define SCREEN_H 360
+#define BASE_SCREEN_W 540
+#define BASE_SCREEN_H 360
+
+static float SCREEN_W = 540.0f;
+static float SCREEN_H = 360.0f;
+
+#define ALPHABET_SIZE 26
 
 #define WORD_SIZE 5
 #define GUESSES 6
@@ -32,6 +38,11 @@ typedef struct {
 } timer;
 
 typedef struct {
+    Vector2 start_pos;
+    Vector2 end_pos;
+} line;
+
+typedef struct {
     string word;
     Vector2 word_size;
     Rectangle boxes[WORD_SIZE];
@@ -42,14 +53,46 @@ typedef struct {
     bool anim_done;
 } row;
 
-static row b[GUESSES] = {0};
+typedef struct {
+    char c[2];
+    bool used;
+} letter; // for the used letters
 
-static float scale_x = 1.0f;
-static float scale_y = 1.0f;
+typedef struct {
+    letter letters[ALPHABET_SIZE];
+    line name_highlight;
+    char name[8]; // just to display the thing above the letters.
+    Vector2 pos;
+} available_letters;
+
+typedef struct {
+    line borders[4];
+} screen_deco; // screen decoration
+
+static row b[GUESSES] = {0}; // board
+static screen_deco sd = {0}; // everything around / decoration
+static available_letters al = {0};
+
+static Vector2 scale = { 1.0f, 1.0f };
 
 static bool is_anim_playing = false;
 static bool game_ended = false;
 static bool game_exited = false;
+
+#define BASE_SPACING (Vector2){ 1.0f, 1.0f }
+#define BASE_LINE_THICKNESS (Vector2){ 1.0f, 1.0f }
+#define BASE_BOX_SIZE (Vector2){ 35.0f, 35.0f }
+
+#define BASE_AVAILABLE_LETTERS_POS (Vector2){ 405.0f, 100.0f }
+
+static Vector2 spacing = { 1.0f, 1.0f };
+static Vector2 line_thickness = { 1.0f, 1.0f };
+static Vector2 box_size = { 35.0f, 35.0f };
+
+// these r set durin update.
+static Vector2 grid_size = { 0.0f, 0.0f };
+
+static int guess_count = 1;
 
 static const char *get_key(int key) { // stupid thing i need to make cuz glfw is stupid
     switch (key) {
@@ -131,6 +174,59 @@ static const char *get_key(int key) { // stupid thing i need to make cuz glfw is
     }
 }
 
+static Vector2 vec_add_x(const Vector2 vec, float f) {
+    return (Vector2){
+        vec.x + f,
+        vec.y
+    };
+}
+
+static Vector2 vec_add_y(const Vector2 vec, float f) {
+    return (Vector2){
+        vec.x,
+        vec.y + f
+    };
+}
+
+static Vector2 vec_sub_x(const Vector2 vec, float f) {
+    return (Vector2){
+        vec.x - f,
+        vec.y
+    };
+}
+
+static Vector2 vec_sub_y(const Vector2 vec, float f) {
+    return (Vector2){
+        vec.x,
+        vec.y - f
+    };
+}
+
+static Vector2 rect_center_pos(const Vector2 *sqr_size, const Vector2 *pos) {
+    return (Vector2){
+        pos->x - (sqr_size->x / 2),
+        pos->y - (sqr_size->y / 2)
+    };
+}
+
+static Vector2 text_mid_cent_rect(const Rectangle *rect, const Vector2 *text_pos) {
+    return (Vector2){
+        rect->x + rect->width / 2.0f - text_pos->x / 2.0f,
+        rect->y + rect->height / 2.0f - text_pos->y / 2.0f
+    };
+}
+
+static float scaled_font_size() {
+    return FONT_SIZE * fminf(scale.x, scale.y);
+}
+
+static line create_line(const Vector2 sp, const Vector2 ep) {
+    return (line){
+        sp,
+        ep
+    };
+}
+
 // helpers for the timer utility.
 void start_timer(timer *t, float dur) {
     t->dur = dur;
@@ -162,21 +258,55 @@ void reset_timer(timer *t) {
 }
 
 // game stuff below
+void init_available_letters() {
+    for (int i=0; i<ALPHABET_SIZE; ++i) {
+        al.letters[i].c[1] = '\0';
+    }
+    al.letters[0].c[0] = 'a';
+    al.letters[1].c[0] = 'b';
+    al.letters[2].c[0] = 'c';
+    al.letters[3].c[0] = 'd';
+    al.letters[4].c[0] = 'e';
+    al.letters[5].c[0] = 'f';
+    al.letters[6].c[0] = 'g';
+    al.letters[7].c[0] = 'h';
+    al.letters[8].c[0] = 'i';
+    al.letters[9].c[0] = 'j';
+    al.letters[10].c[0] = 'k';
+    al.letters[11].c[0] = 'l';
+    al.letters[12].c[0] = 'm';
+    al.letters[13].c[0] = 'n';
+    al.letters[14].c[0] = 'o';
+    al.letters[15].c[0] = 'p';
+    al.letters[16].c[0] = 'q';
+    al.letters[17].c[0] = 'r';
+    al.letters[18].c[0] = 's';
+    al.letters[19].c[0] = 't';
+    al.letters[20].c[0] = 'u';
+    al.letters[21].c[0] = 'v';
+    al.letters[22].c[0] = 'w';
+    al.letters[23].c[0] = 'x';
+    al.letters[24].c[0] = 'y';
+    al.letters[25].c[0] = 'z';
+
+    char letter_name[7] = "Letters";
+    memcpy(al.name, letter_name, 7);
+    al.name[7] = '\0';
+
+    al.pos = BASE_AVAILABLE_LETTERS_POS;
+}
+
 void init_board() {
     for (int i=0; i<GUESSES; ++i) {
         for (int j=0; j<WORD_SIZE; ++j) {
-            b[i].boxes[j] = (Rectangle){
-                .x = (SCREEN_W/2) + (36 * j),
-                .y = (SCREEN_H/4) + (36 * i),
-                .width = 35,
-                .height = 35
-            };
             b[i].colors[j] = BLACK;
             b[i].box_trans[j] = 1.0f;
             b[i].box_anim[j] = false;
         }
     }
 }
+
+void init_screen_deco() {}
 
 // this function picks a random word, and also stores all the words at runtime.
 char* pick_random_word(string *word_list) {
@@ -185,7 +315,7 @@ char* pick_random_word(string *word_list) {
 
     char buf[50];
     int line_count = 0;
-    while (fgets(buf, 50, file) && line_count < 502) {
+    while (fgets(buf, 50, file) && line_count < line-1) {
         line_count++;
     }
     buf[WORD_SIZE] = '\0';
@@ -224,40 +354,55 @@ void add_guess_to_board(string *guess, int guess_idx) {
     b[guess_idx].word_size = MeasureTextEx(GetFontDefault(), guess->data, FONT_SIZE, 1);
 }
 
-bool check_availability(const char *word, string *guess, int *guess_count, const string word_list) {
+bool check_availability(const char *word, string *guess, const string word_list) {
     if (IsKeyPressed(KEY_ENTER) && check_guess(guess->data, word_list)) {
         if (strcmp(guess->data, word) == 0) {
             // then they won
-            int guess_idx = (*guess_count)-1;
+            int guess_idx = guess_count-1;
             add_guess_to_board(guess, guess_idx);
             for (int i=0; i<WORD_SIZE; ++i) {
                 b[guess_idx].colors[i] = GREEN;
             }
             b[guess_idx].guessed = true;            
-            (*guess_count)++;
+            guess_count++;
             guess->size = 0;
             printf("You win!\n");
             return true;
         }
-        else if (strcmp(guess->data, word) != 0 && (*guess_count) <= GUESSES) {
-            int guess_idx = (*guess_count)-1;
+        else if (strcmp(guess->data, word) != 0 && guess_count <= GUESSES) {
+            int guess_idx = guess_count - 1;
             add_guess_to_board(guess, guess_idx);
-            for (size_t i=0; i<WORD_SIZE; ++i) {
-                for (size_t j=0; j<WORD_SIZE; ++j) {
-                    if (i == j && guess->data[i] == word[j]) b[guess_idx].colors[i] = GREEN;
-                    else if (i != j && guess->data[i] == word[j] && ColorIsEqual(b[guess_idx].colors[i], BLACK)) b[guess_idx].colors[i] = YELLOW;
+            char remaining[WORD_SIZE + 1];
+            strcpy(remaining, word);
+            for (size_t i = 0; i < WORD_SIZE; ++i) {
+                if (guess->data[i] == word[i]) {
+                    b[guess_idx].colors[i] = GREEN;
+                    remaining[i] = '\0';
                 }
             }
-            printf("%d\n%d\n", b[guess_idx].guessed, b[guess_idx].anim_done);
+
+            for (size_t i = 0; i < WORD_SIZE; ++i) {
+                if (ColorIsEqual(b[guess_idx].colors[i], GREEN))
+                continue;
+
+                for (size_t j = 0; j < WORD_SIZE; ++j) {
+                    if (remaining[j] != '\0' && guess->data[i] == remaining[j]) {
+                        b[guess_idx].colors[i] = YELLOW;
+                        remaining[j] = '\0';
+                        break;
+                    }
+                }
+            }
+
             b[guess_idx].guessed = true;
-            (*guess_count)++;
-            printf("Loser\n");
-            memset(guess->data, 0, sizeof(char));
+            guess_count++;
+
+            memset(guess->data, 0, WORD_SIZE + 1);
             guess->size = 0;
         }
-        else if ((*guess_count) == GUESSES-1) {
+        else if (guess_count == GUESSES-1) {
             printf("You lose!\n");
-            (*guess_count)++;
+            guess_count++;
             return true;
         }
     }
@@ -290,12 +435,13 @@ void end_game(const char *word) {
 }
 
 void draw_input(string *guess) {
+    const float font_size = scaled_font_size();
     for (size_t i=0; i<guess->size; ++i) {
         char c = guess->data[i];
         const char str_c[2] = { c, '\0' };
-        const Vector2 char_size = MeasureTextEx(GetFontDefault(), str_c, FONT_SIZE, 1);
-        DrawLine(30*(i+1) - (char_size.x/2), (SCREEN_H/2) + (char_size.y / 2), 30*(i+1) + (char_size.x/2), (SCREEN_H/2) + (char_size.y / 2), BLACK);
-        DrawText(str_c, 30*(i+1) - (char_size.x/2), (SCREEN_H/2) - (char_size.y / 2), FONT_SIZE, BLACK);
+        const Vector2 char_size = MeasureTextEx(GetFontDefault(), str_c, font_size, 1);
+        DrawLine((box_size.x - (5.0f * scale.x))*(i+1) - (char_size.x/2), (SCREEN_H/2) + (char_size.y / 2), (box_size.x - (5.0f * scale.x))*(i+1) + (char_size.x/2), (SCREEN_H/2) + (char_size.y / 2), BLACK);
+        DrawText(str_c, (box_size.x - (5.0f * scale.x))*(i+1) - (char_size.x/2), (SCREEN_H/2) - (char_size.y / 2), font_size, BLACK);
     }
     
 }
@@ -303,13 +449,17 @@ void draw_input(string *guess) {
 void draw_guess_text(int outer_idx, int inner_idx) {
     char c = b[outer_idx].word.data[inner_idx];
     const char str_c[2] = { c, '\0' };
-    DrawText(str_c, ((SCREEN_W/2) + (36 * (inner_idx+1)) - (b[outer_idx].word_size.y)), ((SCREEN_H/4) + (36 * (outer_idx+1)) - (b[outer_idx].word_size.x / 2)), FONT_SIZE, b[outer_idx].colors[inner_idx]);
+    const float font_size = scaled_font_size();
+    const Vector2 char_size = MeasureTextEx(GetFontDefault(), str_c, font_size, spacing.x);
+    const Vector2 text_pos = text_mid_cent_rect(&(b[outer_idx].boxes[inner_idx]), (&char_size));
+    //DrawText(str_c, ((SCREEN_W/2) + (36 * (inner_idx+1)) - (b[outer_idx].word_size.y)), ((SCREEN_H/4) + (36 * (outer_idx+1)) - (b[outer_idx].word_size.x / 2)), FONT_SIZE, b[outer_idx].colors[inner_idx]);
+    DrawText(str_c, text_pos.x, text_pos.y, font_size, b[outer_idx].colors[inner_idx]);
 }
 
-void draw_board(int *guess_count) {
+void draw_board() {
     for (int i=1; i<GUESSES+1; ++i) {
         for (int j=1; j<WORD_SIZE+1; ++j) {
-            if (i >= (*guess_count) || !b[i-1].box_anim[j-1]) DrawRectangleRec(b[i-1].boxes[j-1], BLACK); // timer to slowly fade out
+            if (i >= guess_count || !b[i-1].box_anim[j-1]) DrawRectangleRec(b[i-1].boxes[j-1], BLACK); // timer to slowly fade out
             else if (b[i-1].box_anim[j-1]) {
                 draw_guess_text(i-1, j-1);
             }
@@ -351,19 +501,152 @@ void draw_box_anim(row *r) {
     }
 }
 
+void draw_screen_deco() {
+    float line_thick = line_thickness.y;
+    for (int i=0; i<4; ++i) {
+        DrawLineEx(sd.borders[i].start_pos, sd.borders[i].end_pos, line_thick, BLACK);
+        line_thick = i % 2 == 0 ? line_thickness.y : line_thickness.x;
+    }
+}
+
+void draw_available_letters() {
+    const float font_size = scaled_font_size();
+
+//    DrawLineEx(al.name_highlight.start_pos, al.name_highlight.end_pos, line_thickness.y, BLACK); next draw line TODO::::
+    int offset=0;
+    for (int i=0; i<6; ++i) {
+        const Vector2 char_size = MeasureTextEx(GetFontDefault(), al.letters[offset].c, font_size, 1);
+
+        if (al.letters[offset].used) {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y, font_size, RED);
+        }
+        else {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y, font_size, BLACK);
+        }
+        offset++;
+    }
+    
+    for (int i=0; i<6; ++i) {
+        const Vector2 char_size = MeasureTextEx(GetFontDefault(), al.letters[offset].c, font_size, 1);
+
+        if (al.letters[offset].used) {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (25.0f * scale.y), font_size, RED);
+        }
+        else {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (25.0f * scale.y), font_size, BLACK);
+        }
+        offset++;
+    }
+
+    for (int i=0; i<6; ++i) {
+        const Vector2 char_size = MeasureTextEx(GetFontDefault(), al.letters[offset].c, font_size, 1);
+
+        if (al.letters[offset].used) {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (50.0f * scale.y), font_size, RED);
+        }
+        else {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (50.0f * scale.y), font_size, BLACK);
+        }
+        offset++;
+    }
+
+    for (int i=0; i<6; ++i) {
+        const Vector2 char_size = MeasureTextEx(GetFontDefault(), al.letters[offset].c, font_size, 1);
+
+        if (al.letters[offset].used) {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (75.0f * scale.y), font_size, RED);
+        }
+        else {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (75.0f * scale.y), font_size, BLACK);
+        }
+        offset++;
+    }
+
+    for (int i=0; i<2; ++i) {
+        const Vector2 char_size = MeasureTextEx(GetFontDefault(), al.letters[offset].c, font_size, 1);
+
+        if (al.letters[offset].used) {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (100.0f * scale.y), font_size, RED);
+        }
+        else {
+            DrawText(al.letters[offset].c, al.pos.x + (i * spacing.x * 15.0f), al.pos.y + (100.0f * scale.y), font_size, BLACK);
+        }
+        offset++;
+    }
+}
+
 void check_quit() {
     game_exited = game_ended ? IsKeyPressed(KEY_Q) : WindowShouldClose();
+}
+
+void update_statics() {
+    SCREEN_W = GetScreenWidth();
+    SCREEN_H = GetScreenHeight();
+    scale.x = SCREEN_W / (float)BASE_SCREEN_W;
+    scale.y = SCREEN_H / (float)BASE_SCREEN_H;
+    box_size = Vector2Multiply(BASE_BOX_SIZE, scale);
+    spacing = Vector2Multiply(BASE_SPACING, scale);
+    line_thickness = Vector2Multiply(BASE_LINE_THICKNESS, scale);
+}
+
+void update_board() {
+    const Vector2 mid = Vector2Scale((Vector2){SCREEN_W, SCREEN_H}, 0.5f);
+    const Vector2 rec_mid = rect_center_pos(&box_size, &mid);
+    grid_size.x = WORD_SIZE * box_size.x + (WORD_SIZE-1) * spacing.x;
+    grid_size.y = GUESSES * box_size.y + (GUESSES-1) * spacing.y;
+    const Vector2 box_start = {
+        (SCREEN_W - grid_size.x) / 2.0f,
+        (SCREEN_H - grid_size.y) / 2.0f
+    };
+    for (size_t i=0; i<GUESSES; ++i) {
+        for (size_t j=0; j<WORD_SIZE; ++j) {
+            b[i].boxes[j] = (Rectangle){box_start.x + j * (box_size.x + spacing.x), box_start.y + i * (box_size.y + spacing.y), box_size.x, box_size.y};
+        }
+    }
+}
+
+void update_screen_deco() {
+    const Vector2 board_tl_pos = {
+        b[0].boxes[0].x,
+        b[0].boxes[0].y
+    };
+    const Vector2 board_br_pos = {
+        b[GUESSES-1].boxes[WORD_SIZE-1].x + b[GUESSES-1].boxes[WORD_SIZE-1].width,
+        b[GUESSES-1].boxes[WORD_SIZE-1].y + b[GUESSES-1].boxes[WORD_SIZE-1].height
+    };
+    sd.borders[0] = create_line(board_tl_pos, vec_add_x(board_tl_pos, grid_size.x));
+    sd.borders[1] = create_line(board_br_pos, vec_sub_y(board_br_pos, grid_size.y));
+    sd.borders[2] = create_line(board_br_pos, vec_sub_x(board_br_pos, grid_size.x));
+    sd.borders[3] = create_line(board_tl_pos, vec_add_y(board_tl_pos, grid_size.y));
+}
+
+void update_available_letters() {
+    al.pos = Vector2Multiply(BASE_AVAILABLE_LETTERS_POS, scale);
+    al.name_highlight = create_line(vec_sub_y(al.pos, spacing.y), vec_add_x(al.pos, 80.0f * spacing.x));
+    
+    if (guess_count < 2 || !b[guess_count-2].word.data) return;
+    // check the status of them
+    for (int i=0; i<ALPHABET_SIZE; ++i) {
+        if (!(al.letters[i].used)) {
+            // inefficient way but its fine since the size of the board is small
+            for (int j=0; j<WORD_SIZE; ++j) {
+                if (b[guess_count-2].word.data[j] == al.letters[i].c[0]) {
+                    al.letters[i].used = true;
+                }
+            }
+        }
+    }
 }
 
 int main(void) {
     srand(time(0));
     init_board();
+    init_available_letters();
     InitWindow(SCREEN_W, SCREEN_H, "Dummy Wordle");
     SetTargetFPS(60);
     
     string word_list = {0};
     char *word = pick_random_word(&word_list);
-    int guess_count = 1;
     string guess = {
         .data = malloc(WORD_SIZE+1),
         .size = 0
@@ -371,9 +654,13 @@ int main(void) {
     memset(guess.data, 0, sizeof(char));
     while (!game_exited) {
         // upd
+        update_statics();
+        update_board();
+        update_available_letters();
+        update_screen_deco();
         check_quit();
         process_input(&guess);
-        if (!game_ended && !is_anim_playing && check_availability(word, &guess, &guess_count, word_list) || guess_count > GUESSES) {
+        if (!game_ended && !is_anim_playing && check_availability(word, &guess, word_list) || guess_count > GUESSES) {
             game_ended = true;
         }
         BeginDrawing();
@@ -381,7 +668,9 @@ int main(void) {
         if (game_ended) end_game(word);
         draw_input(&guess);
         draw_box_anim(&(b[guess_count-2]));
-        draw_board(&guess_count);
+        draw_board();
+        draw_available_letters();
+        draw_screen_deco();
         EndDrawing();
     }
     free(word);
