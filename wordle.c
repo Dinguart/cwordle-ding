@@ -358,7 +358,7 @@ void add_guess_to_board(string *guess, int guess_idx) {
 }
 
 bool check_availability(const char *word, string *guess, const string word_list) {
-    if (IsKeyPressed(KEY_ENTER) && check_guess(guess->data, word_list)) {
+    if ((IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_END)) && check_guess(guess->data, word_list)) {
         if (strcmp(guess->data, word) == 0) {
             // then they won
             int guess_idx = guess_count-1;
@@ -409,7 +409,7 @@ bool check_availability(const char *word, string *guess, const string word_list)
             return true;
         }
     }
-    else if (IsKeyPressed(KEY_ENTER) && !check_guess(guess->data, word_list)) {
+    else if ((IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_END)) && !check_guess(guess->data, word_list)) {
         printf("Invalid\n");
         memset(guess->data, 0, sizeof(char));
         guess->size = 0;
