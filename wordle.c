@@ -418,6 +418,9 @@ bool check_availability(const char *word, string *guess, const string word_list)
 }
 
 void process_input(string *guess) {
+    if (IsKeyPressed(KEY_F11)) {
+        ToggleFullscreen();
+    }
     if (game_ended) return;
     int key = GetKeyPressed();
     const char *c = get_key(key);
