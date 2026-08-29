@@ -79,6 +79,9 @@ static bool is_anim_playing = false;
 static bool game_ended = false;
 static bool game_exited = false;
 
+static int anim_idx=0;
+static timer anim_box_time = {0};
+
 #define BASE_SPACING (Vector2){ 1.0f, 1.0f }
 #define BASE_LINE_THICKNESS (Vector2){ 1.0f, 1.0f }
 #define BASE_BOX_SIZE (Vector2){ 35.0f, 35.0f }
@@ -374,18 +377,18 @@ bool check_availability(const char *word, string *guess, const string word_list)
             add_guess_to_board(guess, guess_idx);
             char remaining[WORD_SIZE + 1];
             strcpy(remaining, word);
-            for (size_t i = 0; i < WORD_SIZE; ++i) {
+            for (size_t i=0; i<WORD_SIZE; ++i) {
                 if (guess->data[i] == word[i]) {
                     b[guess_idx].colors[i] = GREEN;
                     remaining[i] = '\0';
                 }
             }
 
-            for (size_t i = 0; i < WORD_SIZE; ++i) {
+            for (size_t i=0; i<WORD_SIZE; ++i) {
                 if (ColorIsEqual(b[guess_idx].colors[i], GREEN))
                 continue;
 
-                for (size_t j = 0; j < WORD_SIZE; ++j) {
+                for (size_t j=0; j<WORD_SIZE; ++j) {
                     if (remaining[j] != '\0' && guess->data[i] == remaining[j]) {
                         b[guess_idx].colors[i] = YELLOW;
                         remaining[j] = '\0';
@@ -431,7 +434,7 @@ void process_input(string *guess) {
 }
 
 void end_game(const char *word) {
-    DrawText(TextFormat("Game finished, the word was... %s\nPress Q to exit.", word), 30, 10, FONT_SIZE, BLACK);
+    DrawText(TextFormat("Game finished, the word was... %s\nPress Q to exit, Press N to start a new game.", word), 30, 10, FONT_SIZE, BLACK);
 }
 
 void draw_input(string *guess) {
@@ -452,7 +455,6 @@ void draw_guess_text(int outer_idx, int inner_idx) {
     const float font_size = scaled_font_size();
     const Vector2 char_size = MeasureTextEx(GetFontDefault(), str_c, font_size, spacing.x);
     const Vector2 text_pos = text_mid_cent_rect(&(b[outer_idx].boxes[inner_idx]), (&char_size));
-    //DrawText(str_c, ((SCREEN_W/2) + (36 * (inner_idx+1)) - (b[outer_idx].word_size.y)), ((SCREEN_H/4) + (36 * (outer_idx+1)) - (b[outer_idx].word_size.x / 2)), FONT_SIZE, b[outer_idx].colors[inner_idx]);
     DrawText(str_c, text_pos.x, text_pos.y, font_size, b[outer_idx].colors[inner_idx]);
 }
 
@@ -471,11 +473,9 @@ void draw_box_anim(row *r) {
     if (!r->guessed) return;
     if (!r->anim_done) {
         is_anim_playing = true;
-        static int idx=0;
-        static timer box_time = {0};
 
-        if (idx >= WORD_SIZE) {
-            idx=0;
+        if (anim_idx >= WORD_SIZE) {
+            anim_idx=0;
             r->anim_done = true;
             is_anim_playing = false;
             return;
@@ -483,20 +483,19 @@ void draw_box_anim(row *r) {
 
         // locals for each box
         Color box_color = BLACK;
-        if (!is_timer_active(&box_time) && !was_timer_active(&box_time)) {
-            start_timer(&box_time, 0.2f);
+        if (!is_timer_active(&anim_box_time) && !was_timer_active(&anim_box_time)) {
+            start_timer(&anim_box_time, 0.2f);
         }
-        update_timer(&box_time);
-        printf("Working..\n");
+        update_timer(&anim_box_time);
         // logic
-        box_color = Fade(box_color, r->box_trans[idx]);
-        DrawRectangleRec(r->boxes[idx], box_color);
-        r->box_trans[idx] -= 0.2f;
-        if (!is_timer_active(&box_time)) {
+        box_color = Fade(box_color, r->box_trans[anim_idx]);
+        DrawRectangleRec(r->boxes[anim_idx], box_color);
+        r->box_trans[anim_idx] -= 0.2f;
+        if (!is_timer_active(&anim_box_time)) {
             // if timer finished, display the character.)
-            r->box_anim[idx] = true;
-            idx++;
-            reset_timer(&box_time);
+            r->box_anim[anim_idx] = true;
+            anim_idx++;
+            reset_timer(&anim_box_time);
         }
     }
 }
@@ -638,6 +637,31 @@ void update_available_letters() {
     }
 }
 
+void new_game(string *word_list, char *word) {
+    game_ended = false;
+    memset(word, 0, sizeof(char));
+    memcpy(word, pick_random_word(word_list), WORD_SIZE);
+
+    for (size_t i=0; i<GUESSES; ++i) {
+        for (size_t j=0; j<WORD_SIZE; ++j) {
+            b[i].colors[j] = BLACK;
+            b[i].box_trans[j] = 1.0f;
+            b[i].box_anim[j] = false;
+        }
+        b[i].anim_done = false;
+        b[i].guessed = false;
+    }
+
+    for (size_t i=0; i<ALPHABET_SIZE; ++i) {
+        al.letters[i].used = false;
+    }
+
+    guess_count = 1;
+    is_anim_playing = false;
+    anim_idx=0;
+    reset_timer(&anim_box_time);
+}
+
 int main(void) {
     srand(time(0));
     init_board();
@@ -654,6 +678,9 @@ int main(void) {
     memset(guess.data, 0, sizeof(char));
     while (!game_exited) {
         // upd
+        if (game_ended && IsKeyPressed(KEY_N)) {
+            new_game(&word_list, word);
+        }
         update_statics();
         update_board();
         update_available_letters();
